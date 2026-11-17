@@ -22,6 +22,7 @@ Thumbs.db
 captures/
 *.log
 
-# Signed bundles / APKs are build artifacts, not sources
+# Build artifacts are not sources, except the published release APK
 *.apk
 *.aab
+!releases/*.apk

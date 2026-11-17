@@ -10,6 +10,16 @@
 
 ---
 
+## Готовый APK
+
+Релиз для телефонов (ARM, `ru.delivery.photo`, версия 1.0):
+[скачать app-arm-release.apk](releases/app-arm-release.apk).
+
+Тот же файл приложен к [GitHub Release v1.0](https://github.com/scorpik90/dienPhotoAPK/releases/tag/v1.0).
+APK подписан отладочным ключом — ставится на устройства без MDM.
+
+---
+
 ## Сборка
 
 Требования: JDK 17, Android SDK (platform 36, build-tools 36.0.0).
