@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ФотоОтчёт</string>
+
+    <!-- Рейс -->
+    <string name="trip_title">Рейс</string>
+    <string name="trip_new">Новый рейс</string>
+    <string name="trip_route_no">Номер маршрута</string>
+    <string name="trip_driver">ФИО водителя</string>
+    <string name="trip_vehicle">Автомобиль</string>
+    <string name="trip_start">Начать рейс</string>
+    <string name="trip_finish">Завершить рейс</string>
+    <string name="trip_active">Рейс активен</string>
+    <string name="trip_no_active">Активного рейса нет</string>
+
+    <!-- Точка разгрузки -->
+    <string name="point_title">Точка разгрузки</string>
+    <string name="point_new">Новая точка</string>
+    <string name="point_name">Название точки / получатель</string>
+    <string name="point_address">Адрес (необязательно)</string>
+    <string name="point_select">Выберите точку разгрузки</string>
+    <string name="point_none">Точка не выбрана</string>
+
+    <!-- Съёмка -->
+    <string name="camera_shutter">Снять</string>
+    <string name="camera_permission_title">Нужен доступ к камере</string>
+    <string name="camera_permission_body">Приложение использует камеру для съёмки груза. Фото сохраняются только на устройстве, с водяным знаком.</string>
+    <string name="camera_permission_grant">Разрешить</string>
+    <string name="location_permission_title">Нужен доступ к геопозиции</string>
+    <string name="location_permission_body">Координаты и точность записываются в водяной знак фотографии как подтверждение места съёмки.</string>
+    <string name="location_permission_grant">Разрешить</string>
+    <string name="location_unavailable">Координаты недоступны</string>
+    <string name="location_low_accuracy">GPS: низкая точность</string>
+
+    <!-- Тип фото -->
+    <string name="kind_object">Объект</string>
+    <string name="kind_label">Этикетка</string>
+    <string name="kind_damage">Повреждение</string>
+
+    <!-- Серийный номер -->
+    <string name="serial_title">Серийный номер</string>
+    <string name="serial_hint">Введите серийный номер изделия</string>
+    <string name="serial_not_found">Серийный номер не распознан. Введите вручную или пропустите.</string>
+    <string name="serial_candidates">Найденные варианты</string>
+    <string name="serial_confirm">Подтвердить</string>
+    <string name="serial_skip">Пропустить</string>
+    <string name="serial_source_barcode">Штрихкод</string>
+    <string name="serial_source_ocr">Распознавание текста</string>
+    <string name="serial_source_manual">Вручную</string>
+
+    <!-- Фото и отправка -->
+    <string name="photos_title">Фото</string>
+    <string name="photos_count">Фото: %1$d</string>
+    <string name="photos_empty">В этой точке ещё нет фотографий</string>
+    <string name="share_open">Отправить в MAX</string>
+    <string name="share_strategy_album">Альбом (все фото одним сообщением)</string>
+    <string name="share_strategy_chunks">Частями (порциями по %1$d фото)</string>
+    <string name="share_strategy_collage">Коллаж (одно изображение)</string>
+    <string name="share_done">Фото отправлены</string>
+
+    <!-- История рейсов -->
+    <string name="history_title">История рейсов</string>
+    <string name="tab_history">История</string>
+
+    <!-- Общие -->
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+    <string name="delete">Удалить</string>
+    <string name="tab_camera">Съёмка</string>
+    <string name="tab_photos">Фото</string>
+    <string name="error_generic">Ошибка: %1$s</string>
+</resources>

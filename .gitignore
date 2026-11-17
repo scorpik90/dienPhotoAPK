@@ -1,0 +1,27 @@
+# Gradle / Kotlin build output
+.gradle/
+.kotlin/
+build/
+app/build/
+*/build/
+.cxx/
+.externalNativeBuild/
+
+# Local machine settings
+local.properties
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Android Studio captures and generated reports
+captures/
+*.log
+
+# Signed bundles / APKs are build artifacts, not sources
+*.apk
+*.aab

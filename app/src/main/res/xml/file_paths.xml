@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Служебные помеченные фотографии во внутреннем хранилище приложения -->
+    <files-path
+        name="photos"
+        path="photos/" />
+    <!-- Временные файлы: кадры с камеры и коллажи для отправки -->
+    <cache-path
+        name="cache"
+        path="." />
+</paths>
