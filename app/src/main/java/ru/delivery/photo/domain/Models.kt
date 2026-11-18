@@ -70,6 +70,7 @@ enum class ThemeMode(val code: String) {
  * @param serial серийный номер, подтверждённый пользователем (если есть).
  * @param accuracyM точность GPS. В штамп попадает только когда она плохая:
  *   точные координаты без указания погрешности вводят в заблуждение.
+ * @param address адрес по координатам фото (если удалось определить).
  */
 data class StampData(
     val companyName: String,
@@ -83,6 +84,7 @@ data class StampData(
     val accuracyM: Float?,
     val driverName: String,
     val vehicle: String,
+    val address: String? = null,
 ) {
     val hasGeo: Boolean get() = lat != null && lon != null
 

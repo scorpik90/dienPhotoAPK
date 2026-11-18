@@ -92,10 +92,10 @@ class DeliveryRepository(private val db: AppDatabase) {
 
     suspend fun getPoint(id: String): DeliveryPointEntity? = pointDao.get(id)
 
-    /** Переименование точки разгрузки. */
-    suspend fun renamePoint(id: String, name: String) {
+    /** Обновление названия и адреса точки разгрузки. */
+    suspend fun updatePoint(id: String, name: String, address: String?) {
         if (name.isBlank()) return
-        pointDao.rename(id, name.trim())
+        pointDao.update(id, name.trim(), address?.trim()?.takeIf { it.isNotEmpty() })
     }
 
     /**

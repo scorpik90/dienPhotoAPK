@@ -46,10 +46,10 @@ object WatermarkRenderer {
      * Строки водяного знака.
      *
      * Информация о смене (рейсе) не выводится; дата и время фиксации фото сохраняются.
-     * При наличии показываются модель и (после неё) серийный номер.
+     * При наличии показываются адрес по координатам, модель и (после неё) серийный номер.
      */
     fun buildLines(stamp: StampData): List<String> {
-        val lines = ArrayList<String>(7)
+        val lines = ArrayList<String>(8)
 
         lines += if (stamp.hasGeo) {
             val lat = String.format(Locale.US, "%.5f", stamp.lat).replace('.', ',')
@@ -65,6 +65,8 @@ object WatermarkRenderer {
         } else {
             "Координаты недоступны"
         }
+
+        stamp.address?.takeIf { it.isNotBlank() }?.let { lines += it }
 
         lines += TimeFmt.watermarkStamp(stamp.shotAtMillis)
 
@@ -191,6 +193,7 @@ object WatermarkRenderer {
         } else {
             append("; координаты недоступны")
         }
+        stamp.address?.takeIf { it.isNotBlank() }?.let { append("; адрес ").append(it) }
         if (stamp.driverName.isNotBlank()) append("; ").append(stamp.driverName)
         if (stamp.vehicle.isNotBlank()) append("; ").append(stamp.vehicle)
     }

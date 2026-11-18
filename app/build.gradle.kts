@@ -1,9 +1,35 @@
+import java.util.Base64
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+val yandexGeocoderApiKey = (
+    localProperties.getProperty("YANDEX_GEOCODER_API_KEY")
+        ?: providers.gradleProperty("YANDEX_GEOCODER_API_KEY").orNull
+        ?: providers.environmentVariable("YANDEX_GEOCODER_API_KEY").orNull
+        ?: ""
+    ).trim()
+
+fun obfuscateSecret(value: String, mask: Int): String {
+    if (value.isEmpty()) return ""
+    val bytes = value.toByteArray(Charsets.UTF_8)
+    val masked = ByteArray(bytes.size) { i -> (bytes[i].toInt() xor mask).toByte() }
+    return Base64.getEncoder().encodeToString(masked)
+}
+
+val yandexGeocoderKeyMask = 0x5B
+val yandexGeocoderKeyEnc = obfuscateSecret(yandexGeocoderApiKey, yandexGeocoderKeyMask)
 
 android {
     namespace = "ru.delivery.photo"
@@ -13,8 +39,13 @@ android {
         applicationId = "ru.delivery.photo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
+
+        // Ключ не хранится в исходниках открытым текстом: берётся из local.properties/env
+        // и вшивается в приложение в обфусцированном виде (см. ReverseGeocoder).
+        buildConfigField("String", "YANDEX_GEOCODER_KEY_ENC", "\"$yandexGeocoderKeyEnc\"")
+        buildConfigField("int", "YANDEX_GEOCODER_KEY_MASK", "$yandexGeocoderKeyMask")
     }
 
     /**

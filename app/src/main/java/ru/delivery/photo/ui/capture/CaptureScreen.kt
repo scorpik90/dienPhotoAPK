@@ -128,7 +128,7 @@ fun CaptureScreen(
         }
     }
     var showPointDialog by remember { mutableStateOf(false) }
-    var renamingPoint by remember { mutableStateOf<DeliveryPointEntity?>(null) }
+    var editingPoint by remember { mutableStateOf<DeliveryPointEntity?>(null) }
     var deletingPoint by remember { mutableStateOf<DeliveryPointEntity?>(null) }
     var viewingPhoto by remember { mutableStateOf<PhotoEntity?>(null) }
 
@@ -256,7 +256,7 @@ fun CaptureScreen(
                 selectedId = pointId,
                 onSelect = vm::selectPoint,
                 onCreate = { showPointDialog = true },
-                onRename = { point -> renamingPoint = point },
+                onRename = { point -> editingPoint = point },
                 onDelete = { point -> deletingPoint = point },
             )
             if (!hasLocation) {
@@ -521,16 +521,20 @@ fun CaptureScreen(
         )
     }
 
-    renamingPoint?.let { point ->
+    editingPoint?.let { point ->
         var name by remember(point.id) { mutableStateOf(point.name) }
-        ru.delivery.photo.ui.common.RenamePointDialog(
+        var address by remember(point.id) { mutableStateOf(point.address.orEmpty()) }
+        ru.delivery.photo.ui.common.EditPointDialog(
             name = name,
+            address = address,
             onNameChange = { name = it },
-            onDismiss = { renamingPoint = null },
+            onAddressChange = { address = it },
+            onDismiss = { editingPoint = null },
             onConfirm = {
-                vm.renamePoint(point.id, name)
-                renamingPoint = null
+                vm.updatePoint(point.id, name, address)
+                editingPoint = null
             },
+            onMessage = vm::notify,
         )
     }
 
@@ -563,6 +567,7 @@ fun CaptureScreen(
                 vm.createPoint(name, address)
                 showPointDialog = false
             },
+            onMessage = vm::notify,
         )
     }
 
@@ -704,7 +709,7 @@ private fun ReviewDialog(
     onSkip: () -> Unit,
     onDiscard: () -> Unit,
 ) {
-    val bitmap = remember(state.previewFile.path) {
+    val bitmap = remember(state.previewFile.path, state.photoAddress) {
         BitmapFactory.decodeFile(state.previewFile.path)
     }
 
@@ -830,6 +835,9 @@ private fun ReviewDialog(
                             state.accuracyM?.let { append(" ±").append(it.toInt()).append(" м") }
                         } else {
                             append("Координаты недоступны")
+                        }
+                        state.photoAddress?.takeIf { it.isNotBlank() }?.let {
+                            append('\n').append("Адрес: ").append(it)
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

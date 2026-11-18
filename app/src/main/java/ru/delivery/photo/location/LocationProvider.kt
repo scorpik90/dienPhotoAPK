@@ -33,6 +33,14 @@ class LocationProvider(private val context: Context) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    /** Доступен ли хотя бы один провайдер геолокации. */
+    fun isProviderAvailable(): Boolean {
+        val lm = manager ?: return false
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).any { provider ->
+            runCatching { lm.isProviderEnabled(provider) }.getOrDefault(false)
+        }
+    }
+
     /** Последнее известное положение, без запроса. */
     fun lastKnown(): Location? {
         val lm = manager ?: return null

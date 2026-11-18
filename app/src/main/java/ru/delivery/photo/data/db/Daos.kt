@@ -39,8 +39,8 @@ interface DeliveryPointDao {
     @Upsert
     suspend fun upsert(point: DeliveryPointEntity)
 
-    @Query("UPDATE delivery_points SET name = :name WHERE id = :id")
-    suspend fun rename(id: String, name: String)
+    @Query("UPDATE delivery_points SET name = :name, address = :address WHERE id = :id")
+    suspend fun update(id: String, name: String, address: String?)
 
     @Query("UPDATE delivery_points SET finishedAt = :finishedAt WHERE id = :id")
     suspend fun finish(id: String, finishedAt: Long)

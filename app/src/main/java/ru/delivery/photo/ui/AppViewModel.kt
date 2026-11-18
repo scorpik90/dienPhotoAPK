@@ -6,6 +6,8 @@ import android.location.LocationManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,13 +40,14 @@ import ru.delivery.photo.domain.StampData
 import ru.delivery.photo.ui.common.CrewDraft
 import ru.delivery.photo.domain.ThemeMode
 import ru.delivery.photo.location.LocationProvider
+import ru.delivery.photo.location.ReverseGeocoder
 import ru.delivery.photo.serial.SerialExtractor
 import ru.delivery.photo.share.CaptionBuilder
 import ru.delivery.photo.share.CollageBuilder
 import ru.delivery.photo.watermark.WatermarkRenderer
 import java.io.File
 
-/** Состояние подтверждения снимка: превью, модель и кандидаты серийного номера. */
+/** Состояние подтверждения снимка: превью, модель, адрес и кандидаты серийного номера. */
 data class ReviewState(
     val pointId: String,
     val tempFile: File,
@@ -63,6 +66,7 @@ data class ReviewState(
     val accuracyM: Float?,
     val geoSource: GeoSource,
     val source: SerialSource,
+    val photoAddress: String? = null,
 )
 
 /** Запрос на отправку: набор файлов, подпись и стратегия. */
@@ -279,10 +283,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 repository.putSetting(KEY_CURRENT_CREW, it)
             }
 
-            // Создаём первую точку разгрузки и сразу выбираем её,
-            // чтобы водителю оставалось только подтвердить название.
-            val pointId = repository.createPoint(id, "Точка разгрузки 1", null)
-            selectPoint(pointId)
+            _currentPointId.value = null
+            repository.putSetting(KEY_CURRENT_POINT, "")
         }
     }
 
@@ -390,13 +392,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _currentKind.value = kind
     }
 
-    /** Переименование точки разгрузки. */
-    fun renamePoint(id: String, name: String) {
+    /** Обновление названия и адреса точки разгрузки. */
+    fun updatePoint(id: String, name: String, address: String?) {
         if (name.isBlank()) {
             emit("Название точки не может быть пустым")
             return
         }
-        viewModelScope.launch { repository.renamePoint(id, name) }
+        viewModelScope.launch { repository.updatePoint(id, name, address) }
     }
 
     /** Удаление точки разгрузки вместе с её фотографиями. */
@@ -414,7 +416,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------- съёмка
 
-    /** Обрабатывает только что снятый кадр: штамп, геометка, подготовка к подтверждению. */
+    /** Обрабатывает только что снятый кадр: штамп, геометка, адрес, подготовка к подтверждению. */
     fun processCapture(tempFile: File) {
         viewModelScope.launch {
             _busy.value = true
@@ -438,7 +440,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val shotAt = System.currentTimeMillis()
-                val stamp = StampData(
+                val baseStamp = StampData(
                     companyName = companyName,
                     routeNo = trip.routeNo,
                     pointName = point?.name.orEmpty(),
@@ -450,20 +452,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     accuracyM = location?.accuracy,
                     driverName = currentCrew.value?.name ?: trip.driverName,
                     vehicle = currentCrew.value?.vehicle ?: trip.vehicle,
+                    address = null,
                 )
 
-                val source = WatermarkRenderer.decodeScaled(tempFile)
-                if (source == null) {
+                val previewFile = store.newPhotoFile("preview-${System.currentTimeMillis()}")
+                val previewOk = withContext(Dispatchers.Default) {
+                    val source = WatermarkRenderer.decodeScaled(tempFile) ?: return@withContext false
+                    try {
+                        val previewBitmap = WatermarkRenderer.render(source, baseStamp)
+                        try {
+                            WatermarkRenderer.save(previewFile, previewBitmap, baseStamp)
+                        } finally {
+                            previewBitmap.recycle()
+                        }
+                        true
+                    } finally {
+                        source.recycle()
+                    }
+                }
+                if (!previewOk) {
                     emit("Не удалось прочитать снимок")
                     store.delete(tempFile.path)
                     return@launch
                 }
-
-                val previewFile = store.newPhotoFile("preview-${System.currentTimeMillis()}")
-                val previewBitmap = WatermarkRenderer.render(source, stamp)
-                WatermarkRenderer.save(previewFile, previewBitmap, stamp)
-                previewBitmap.recycle()
-                source.recycle()
 
                 val kind = _currentKind.value
 
@@ -485,10 +496,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     accuracyM = location?.accuracy,
                     geoSource = geoSource,
                     source = SerialSource.NONE,
+                    photoAddress = null,
                 )
+                _busy.value = false
 
-                if (kind == PhotoKind.LABEL) {
-                    val extraction = withContext(Dispatchers.Default) {
+                val extractionDeferred = if (kind == PhotoKind.LABEL) {
+                    viewModelScope.async(Dispatchers.Default) {
                         val bitmap = WatermarkRenderer.decodeScaled(tempFile, maxDim = 1600)
                         try {
                             if (bitmap == null) {
@@ -509,8 +522,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             bitmap?.recycle()
                         }
                     }
+                } else {
+                    null
+                }
+
+                val addressDeferred = if (location != null) {
+                    viewModelScope.async(Dispatchers.IO) {
+                        ReverseGeocoder.geocode(
+                            getApplication(),
+                            location.latitude,
+                            location.longitude,
+                        )
+                    }
+                } else {
+                    null
+                }
+
+                extractionDeferred?.let { deferred ->
+                    val extraction = runCatching { deferred.await() }.getOrNull()
                     if (extraction != null) {
-                        _review.value = _review.value?.copy(
+                        _review.value = _review.value?.takeIf { it.tempFile == tempFile }?.copy(
                             candidates = extraction.candidates,
                             modelCandidates = extraction.modelCandidates,
                             rawText = extraction.rawText,
@@ -523,9 +554,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                             } else {
                                 SerialSource.OCR
                             },
-                        )
+                        ) ?: _review.value
                     } else {
-                        _review.value = _review.value?.copy(extracting = false)
+                        _review.value = _review.value?.takeIf { it.tempFile == tempFile }?.copy(extracting = false)
+                            ?: _review.value
+                    }
+                }
+
+                addressDeferred?.let { deferred ->
+                    val photoAddress = runCatching { deferred.await() }.getOrNull()?.takeIf { it.isNotBlank() }
+                    if (photoAddress != null) {
+                        val current = _review.value
+                        if (current != null && current.tempFile == tempFile) {
+                            withContext(Dispatchers.Default) {
+                                val source = WatermarkRenderer.decodeScaled(tempFile) ?: return@withContext
+                                try {
+                                    val previewBitmap = WatermarkRenderer.render(source, baseStamp.copy(address = photoAddress))
+                                    try {
+                                        WatermarkRenderer.save(previewFile, previewBitmap, baseStamp.copy(address = photoAddress))
+                                    } finally {
+                                        previewBitmap.recycle()
+                                    }
+                                } finally {
+                                    source.recycle()
+                                }
+                            }
+                            _review.value = _review.value?.takeIf { it.tempFile == tempFile }?.copy(photoAddress = photoAddress)
+                                ?: _review.value
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -578,6 +634,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     accuracyM = state.accuracyM,
                     driverName = currentCrew.value?.name ?: trip.driverName,
                     vehicle = currentCrew.value?.vehicle ?: trip.vehicle,
+                    address = state.photoAddress,
                 )
 
                 val source = WatermarkRenderer.decodeScaled(state.tempFile)

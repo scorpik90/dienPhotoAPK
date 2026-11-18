@@ -1,8 +1,6 @@
 package ru.delivery.photo.ui.common
 
 import android.content.Context
-import android.location.Geocoder
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -52,20 +50,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
 import ru.delivery.photo.DeliveryPhotoApp
 import ru.delivery.photo.data.db.CrewMemberEntity
 import ru.delivery.photo.data.db.DeliveryPointEntity
 import ru.delivery.photo.domain.PhotoKind
 import ru.delivery.photo.domain.ShareStrategy
 import ru.delivery.photo.domain.ThemeMode
+import ru.delivery.photo.location.ReverseGeocoder
 import ru.delivery.photo.ui.AppViewModel
 import ru.delivery.photo.ui.theme.Spacing
-import java.util.Locale
-import kotlin.coroutines.resume
 
 /** Карточка с заголовком и содержимым. Заголовок можно не указывать. */
 @Composable
@@ -126,7 +120,7 @@ fun TripDialog(
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Водители", style = MaterialTheme.typography.titleSmall)
 
@@ -134,34 +128,42 @@ fun TripDialog(
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        OutlinedTextField(
-                            value = member.name,
-                            onValueChange = { value ->
-                                onCrewChange(
-                                    crew.toMutableList().also { it[index] = member.copy(name = value) }
-                                )
-                            },
-                            label = { Text("ФИО") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
-                        OutlinedTextField(
-                            value = member.vehicle,
-                            onValueChange = { value ->
-                                onCrewChange(
-                                    crew.toMutableList().also { it[index] = member.copy(vehicle = value) }
-                                )
-                            },
-                            label = { Text("Автомобиль") },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            OutlinedTextField(
+                                value = member.name,
+                                onValueChange = { value ->
+                                    onCrewChange(
+                                        crew.toMutableList().also { it[index] = member.copy(name = value) }
+                                    )
+                                },
+                                label = { Text("ФИО водителя") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                value = member.vehicle,
+                                onValueChange = { value ->
+                                    onCrewChange(
+                                        crew.toMutableList().also { it[index] = member.copy(vehicle = value) }
+                                    )
+                                },
+                                label = { Text("Автомобиль") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         if (crew.size > 1) {
-                            IconButton(onClick = {
-                                onCrewChange(crew.filterIndexed { i, _ -> i != index })
-                            }) {
+                            IconButton(
+                                onClick = {
+                                    onCrewChange(crew.filterIndexed { i, _ -> i != index })
+                                },
+                                modifier = Modifier.padding(top = 4.dp),
+                            ) {
                                 Icon(
                                     Icons.Filled.Delete,
                                     contentDescription = "Убрать водителя",
@@ -169,6 +171,9 @@ fun TripDialog(
                                 )
                             }
                         }
+                    }
+                    if (index < crew.lastIndex) {
+                        HorizontalDivider()
                     }
                 }
 
@@ -193,12 +198,23 @@ fun TripDialog(
 fun DeliveryPointDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, address: String?) -> Unit,
+    onMessage: (String) -> Unit = {},
 ) {
     var name by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
     var loadingAddress by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val app = context.applicationContext as? DeliveryPhotoApp
+    val locationProvider = app?.locationProvider
+    var gpsUnavailable by remember { mutableStateOf(locationProvider?.isProviderAvailable() != true) }
+
+    androidx.compose.runtime.LaunchedEffect(locationProvider) {
+        while (true) {
+            gpsUnavailable = locationProvider?.isProviderAvailable() != true
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -227,11 +243,27 @@ fun DeliveryPointDialog(
                                 if (loadingAddress) return@IconButton
                                 loadingAddress = true
                                 scope.launch {
-                                    val result = runCatching {
-                                        fetchAddressFromCurrentLocation(context)
-                                    }.getOrNull()
-                                    if (!result.isNullOrBlank()) {
-                                        address = result
+                                    val provider = (context.applicationContext as? DeliveryPhotoApp)?.locationProvider
+                                    val location = provider?.current() ?: provider?.lastKnown()
+                                    val goodFix = location != null &&
+                                        location.hasAccuracy() &&
+                                        location.accuracy <= 30f
+                                    when {
+                                        provider == null || !provider.isProviderAvailable() || !goodFix -> {
+                                            onMessage("Нет точного позиционирования GPS")
+                                        }
+                                        else -> {
+                                            val resolved = ReverseGeocoder.geocode(
+                                                context,
+                                                location!!.latitude,
+                                                location.longitude,
+                                            )
+                                            if (resolved.isNullOrBlank()) {
+                                                onMessage("Не удалось получить адрес по GPS")
+                                            } else {
+                                                address = resolved
+                                            }
+                                        }
                                     }
                                     loadingAddress = false
                                 }
@@ -244,10 +276,27 @@ fun DeliveryPointDialog(
                                     strokeWidth = 2.dp,
                                 )
                             } else {
-                                Icon(
-                                    imageVector = Icons.Filled.MyLocation,
-                                    contentDescription = "Адрес по текущим координатам GPS",
-                                )
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MyLocation,
+                                        contentDescription = "Адрес по текущим координатам GPS",
+                                        tint = if (gpsUnavailable) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                    if (gpsUnavailable) {
+                                        androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+                                            drawLine(
+                                                color = Color.Red.copy(alpha = 0.85f),
+                                                start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                                                end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                                strokeWidth = 2.dp.toPx(),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     },
@@ -261,47 +310,7 @@ fun DeliveryPointDialog(
     )
 }
 
-private suspend fun fetchAddressFromCurrentLocation(context: Context): String? {
-    val app = context.applicationContext as? DeliveryPhotoApp ?: return null
-    val location = app.locationProvider.current() ?: app.locationProvider.lastKnown() ?: return null
-    return withContext(Dispatchers.IO) {
-        geocodeLine(context, location.latitude, location.longitude)
-    }
-}
-
-@Suppress("DEPRECATION")
-private suspend fun geocodeLine(context: Context, lat: Double, lon: Double): String? {
-    if (!Geocoder.isPresent()) return null
-    val geocoder = Geocoder(context, Locale.getDefault())
-    val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        suspendCancellableCoroutine { continuation ->
-            geocoder.getFromLocation(lat, lon, 1, object : Geocoder.GeocodeListener {
-                override fun onGeocode(addresses: MutableList<android.location.Address>) {
-                    if (continuation.isActive) {
-                        continuation.resume(addresses.firstOrNull())
-                    }
-                }
-
-                override fun onError(errorMessage: String?) {
-                    if (continuation.isActive) continuation.resume(null)
-                }
-            })
-            continuation.invokeOnCancellation { }
-        }
-    } else {
-        runCatching { geocoder.getFromLocation(lat, lon, 1) }
-            .getOrNull()
-            ?.firstOrNull()
-    } ?: return null
-
-    return address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: listOfNotNull(
-        address.thoroughfare,
-        address.subThoroughfare,
-        address.locality,
-        address.adminArea,
-        address.countryName,
-    ).joinToString(", ").takeIf { it.isNotBlank() }
-}
+/* Обратное геокодирование вынесено в ru.delivery.photo.location.ReverseGeocoder. */
 
 /**
  * Выбор точки разгрузки: выпадающий список с возможностью
@@ -481,25 +490,114 @@ fun CrewSelector(
     }
 }
 
-/** Переименование точки разгрузки. */
+/** Редактирование точки разгрузки (название и адрес). */
 @Composable
-fun RenamePointDialog(
+fun EditPointDialog(
     name: String,
+    address: String,
     onNameChange: (String) -> Unit,
+    onAddressChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
+    onMessage: (String) -> Unit = {},
 ) {
+    var loadingAddress by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val app = context.applicationContext as? DeliveryPhotoApp
+    val locationProvider = app?.locationProvider
+    var gpsUnavailable by remember { mutableStateOf(locationProvider?.isProviderAvailable() != true) }
+
+    androidx.compose.runtime.LaunchedEffect(locationProvider) {
+        while (true) {
+            gpsUnavailable = locationProvider?.isProviderAvailable() != true
+            kotlinx.coroutines.delay(2_000)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Переименовать точку") },
+        title = { Text("Редактировать точку") },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = onNameChange,
-                label = { Text("Название точки / получатель") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    label = { Text("Название точки / получатель") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = address,
+                    onValueChange = onAddressChange,
+                    label = { Text("Адрес (необязательно)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                if (loadingAddress) return@IconButton
+                                loadingAddress = true
+                                scope.launch {
+                                    val provider = (context.applicationContext as? DeliveryPhotoApp)?.locationProvider
+                                    val location = provider?.current() ?: provider?.lastKnown()
+                                    val goodFix = location != null &&
+                                        location.hasAccuracy() &&
+                                        location.accuracy <= 30f
+                                    when {
+                                        provider == null || !provider.isProviderAvailable() || !goodFix -> {
+                                            onMessage("Нет точного позиционирования GPS")
+                                        }
+                                        else -> {
+                                            val resolved = ReverseGeocoder.geocode(
+                                                context,
+                                                location!!.latitude,
+                                                location.longitude,
+                                            )
+                                            if (resolved.isNullOrBlank()) {
+                                                onMessage("Не удалось получить адрес по GPS")
+                                            } else {
+                                                onAddressChange(resolved)
+                                            }
+                                        }
+                                    }
+                                    loadingAddress = false
+                                }
+                            },
+                            enabled = !loadingAddress,
+                        ) {
+                            if (loadingAddress) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MyLocation,
+                                        contentDescription = "Адрес по текущим координатам GPS",
+                                        tint = if (gpsUnavailable) {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                    if (gpsUnavailable) {
+                                        androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+                                            drawLine(
+                                                color = Color.Red.copy(alpha = 0.85f),
+                                                start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                                                end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                                strokeWidth = 2.dp.toPx(),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                )
+            }
         },
         confirmButton = { Button(onClick = onConfirm) { Text("Сохранить") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
