@@ -38,6 +38,15 @@ class CameraController(private val context: Context) {
             ?.let { maxOf(1f, it.minZoomRatio) }
             ?: 1f
 
+    /** Есть ли вспышка/фонарик на текущей камере. */
+    val hasFlashUnit: Boolean
+        get() = camera?.cameraInfo?.hasFlashUnit() == true
+
+    /** Включение/выключение фонарика в режиме предпросмотра/съёмки. */
+    fun setTorch(enabled: Boolean) {
+        camera?.cameraControl?.enableTorch(enabled)
+    }
+
     suspend fun bind(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
         val provider = ProcessCameraProvider.getInstance(context).await(context)
 

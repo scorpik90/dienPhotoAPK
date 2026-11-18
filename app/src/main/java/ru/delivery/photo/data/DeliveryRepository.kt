@@ -133,6 +133,7 @@ class DeliveryRepository(private val db: AppDatabase) {
         pointId: String,
         filePath: String,
         kind: PhotoKind,
+        model: String?,
         serial: String?,
         serialSource: SerialSource,
         serialRawText: String?,
@@ -164,6 +165,7 @@ class DeliveryRepository(private val db: AppDatabase) {
                 width = width,
                 height = height,
                 sha256 = sha256,
+                model = model,
             )
         )
         return id

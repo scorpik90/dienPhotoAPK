@@ -43,13 +43,13 @@ object WatermarkRenderer {
     private const val STROKE_RATIO = 0.16f
 
     /**
-     * Строки водяного знака в порядке сверху вниз.
+     * Строки водяного знака.
      *
-     * Первая строка — рейс с точкой разгрузки, дальше дата-время, координаты,
-     * водитель с автомобилем и организацией и, если есть, серийный номер.
+     * Информация о смене (рейсе) не выводится; дата и время фиксации фото сохраняются.
+     * При наличии показываются модель и (после неё) серийный номер.
      */
     fun buildLines(stamp: StampData): List<String> {
-        val lines = ArrayList<String>(6)
+        val lines = ArrayList<String>(7)
 
         lines += if (stamp.hasGeo) {
             val lat = String.format(Locale.US, "%.5f", stamp.lat).replace('.', ',')
@@ -68,16 +68,7 @@ object WatermarkRenderer {
 
         lines += TimeFmt.watermarkStamp(stamp.shotAtMillis)
 
-        val context = buildString {
-            if (stamp.routeNo.isNotBlank()) {
-                append("Рейс ").append(stamp.routeNo)
-            }
-            if (stamp.pointName.isNotBlank()) {
-                if (isNotEmpty()) append(" · ")
-                append(stamp.pointName)
-            }
-        }
-        if (context.isNotBlank()) lines += context
+        if (stamp.pointName.isNotBlank()) lines += stamp.pointName
 
         val who = buildString {
             if (stamp.driverName.isNotBlank()) append(stamp.driverName)
@@ -92,6 +83,7 @@ object WatermarkRenderer {
         }
         if (who.isNotBlank()) lines += who
 
+        stamp.model?.takeIf { it.isNotBlank() }?.let { lines += "Модель: $it" }
         stamp.serial?.takeIf { it.isNotBlank() }?.let { lines += "SN: $it" }
 
         return lines
@@ -187,6 +179,7 @@ object WatermarkRenderer {
     fun descriptionFor(stamp: StampData): String = buildString {
         append("Рейс ").append(stamp.routeNo.ifBlank { "—" })
         append("; точка ").append(stamp.pointName.ifBlank { "—" })
+        stamp.model?.takeIf { it.isNotBlank() }?.let { append("; модель ").append(it) }
         stamp.serial?.takeIf { it.isNotBlank() }?.let { append("; SN ").append(it) }
         append("; ").append(TimeFmt.stamp(stamp.shotAtMillis))
         if (stamp.hasGeo) {

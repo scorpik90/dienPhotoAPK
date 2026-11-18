@@ -65,7 +65,9 @@ enum class ThemeMode(val code: String) {
  * Данные водяного знака. Формируются в момент съёмки и запекаются одновременно
  * в пиксели изображения и в EXIF.
  *
- * @param companyName название организации — выводится первой строкой штампа.
+ * @param companyName название организации — выводится в штампе.
+ * @param model модель оборудования, распознанная на этикетке (если есть).
+ * @param serial серийный номер, подтверждённый пользователем (если есть).
  * @param accuracyM точность GPS. В штамп попадает только когда она плохая:
  *   точные координаты без указания погрешности вводят в заблуждение.
  */
@@ -73,6 +75,7 @@ data class StampData(
     val companyName: String,
     val routeNo: String,
     val pointName: String,
+    val model: String?,
     val serial: String?,
     val shotAtMillis: Long,
     val lat: Double?,

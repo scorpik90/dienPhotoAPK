@@ -67,6 +67,8 @@ data class PhotoEntity(
     val sha256: String? = null,
     val sentAt: Long? = null,
     val packageId: String? = null,
+    /** Модель оборудования, распознанная на этикетке (при наличии). */
+    val model: String? = null,
 )
 
 /** Факт отправки набора фотографий в мессенджер. */

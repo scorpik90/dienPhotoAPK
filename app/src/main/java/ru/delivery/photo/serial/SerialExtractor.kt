@@ -12,21 +12,22 @@ import ru.delivery.photo.domain.SerialPatterns
 import kotlin.coroutines.resume
 
 /**
- * Результат извлечения кандидатов серийного номера из фотографии этикетки.
+ * Результат извлечения кандидатов с фотографии этикетки.
  *
- * [candidates] — предложения пользователю, а не готовый ответ: серийник
- * попадает в водяной знак только после ручного подтверждения.
+ * [candidates] и [modelCandidates] — предложения пользователю, а не готовый ответ:
+ * модель и серийник попадают в водяной знак только после ручного подтверждения.
  */
 data class SerialExtraction(
     val candidates: List<String>,
+    val modelCandidates: List<String>,
     val rawText: String?,
     val barcodeValue: String?,
 ) {
-    val isEmpty: Boolean get() = candidates.isEmpty()
+    val isEmpty: Boolean get() = candidates.isEmpty() && modelCandidates.isEmpty()
 }
 
 /**
- * Извлечение серийного номера из фотографии этикетки.
+ * Извлечение модели и серийного номера из фотографии этикетки.
  *
  * Используются модели ML Kit, поставляемые внутри APK (bundled): Google Play
  * Services на устройствах парка отсутствуют.
@@ -90,8 +91,11 @@ class SerialExtractor {
         barcode?.let { candidates += SerialPatterns.normalize(it) }
         rawText?.let { candidates += SerialPatterns.extract(it) }
 
+        val modelCandidates = rawText?.let { SerialPatterns.extractModels(it) } ?: emptyList()
+
         return SerialExtraction(
             candidates = candidates.toList(),
+            modelCandidates = modelCandidates,
             rawText = rawText,
             barcodeValue = barcode,
         )

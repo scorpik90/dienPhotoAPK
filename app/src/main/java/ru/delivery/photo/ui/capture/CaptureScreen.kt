@@ -25,15 +25,18 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -66,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -75,13 +79,14 @@ import ru.delivery.photo.data.db.PhotoEntity
 import ru.delivery.photo.domain.PhotoKind
 import ru.delivery.photo.ui.AppViewModel
 import ru.delivery.photo.ui.ReviewState
+import ru.delivery.photo.ui.common.AppSettingsDialog
 import ru.delivery.photo.ui.common.CrewDraft
 import ru.delivery.photo.ui.common.CrewSelector
-import ru.delivery.photo.ui.common.PhotoKindSelector
 import ru.delivery.photo.ui.common.PointSelector
 import ru.delivery.photo.ui.common.SectionCard
 import ru.delivery.photo.ui.common.ShareCoordinator
 import ru.delivery.photo.ui.common.title
+import ru.delivery.photo.ui.theme.Spacing
 import ru.delivery.photo.util.hasCameraPermission
 import ru.delivery.photo.util.hasLocationPermission
 import java.io.File
@@ -111,6 +116,7 @@ fun CaptureScreen(
     var hasLocation by remember { mutableStateOf(context.hasLocationPermission()) }
     var showTripDialog by remember { mutableStateOf(false) }
     var showFinishDialog by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var tripCrew by remember { mutableStateOf(emptyList<CrewDraft>()) }
     var pendingCrew by remember { mutableStateOf(emptyList<CrewDraft>()) }
 
@@ -148,9 +154,11 @@ fun CaptureScreen(
         PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
     }
 
-    // Зум: кнопки и жест «щипок». Диапазон уточняется после привязки камеры.
+    // Зум и фонарик. Диапазон/наличие вспышки уточняются после привязки камеры.
     var zoom by remember { mutableFloatStateOf(1f) }
     var maxZoom by remember { mutableFloatStateOf(1f) }
+    var torchOn by remember { mutableStateOf(false) }
+    var hasFlash by remember { mutableStateOf(false) }
 
     LaunchedEffect(hasCamera) {
         if (hasCamera) {
@@ -158,7 +166,13 @@ fun CaptureScreen(
                 controller.bind(lifecycleOwner, previewView)
                 maxZoom = controller.maxZoomRatio
                 zoom = controller.setZoomRatio(1f)
+                hasFlash = controller.hasFlashUnit
+                torchOn = false
+                controller.setTorch(false)
             }.onFailure { vm.notify("Камера недоступна: ${it.message}") }
+        } else {
+            torchOn = false
+            hasFlash = false
         }
     }
 
@@ -185,21 +199,26 @@ fun CaptureScreen(
         // ------------------------------------------------------- шапка
         SectionCard(
             title = "Рейс",
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.sm),
             trailing = {
-                Row {
-                    if (trip != null) {
-                        TextButton(onClick = { showFinishDialog = true }) {
-                            Text("Завершить")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (trip == null) {
+                        TextButton(onClick = {
+                            tripCrew = pendingCrew
+                            showTripDialog = true
+                        }) { Text("Начать") }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Настройки")
                         }
-                    }
-                    TextButton(onClick = {
-                        // Данные подгружаем до открытия диалога, иначе он
-                        // покажет пустой состав экипажа.
-                        tripCrew = pendingCrew
-                        showTripDialog = true
-                    }) {
-                        Text(if (trip == null) "Начать" else "Изменить")
+                    } else {
+                        TextButton(onClick = {
+                            tripCrew = pendingCrew
+                            showTripDialog = true
+                        }) { Text("Изменить") }
+                        TextButton(onClick = { showFinishDialog = true }) { Text("Завершить") }
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                        }
                     }
                 }
             },
@@ -222,15 +241,15 @@ fun CaptureScreen(
                     members = crew,
                     currentId = currentCrew?.id,
                     onSelect = vm::switchCrew,
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.padding(top = Spacing.xs),
                 )
             }
         }
 
-        // ------------------------------------------------- точка и тип
+        // ------------------------------------------------- точка разгрузки
         SectionCard(
-            title = "Точка разгрузки",
-            modifier = Modifier.padding(horizontal = 12.dp),
+            title = null,
+            modifier = Modifier.padding(horizontal = Spacing.screen),
         ) {
             PointSelector(
                 points = points,
@@ -239,11 +258,6 @@ fun CaptureScreen(
                 onCreate = { showPointDialog = true },
                 onRename = { point -> renamingPoint = point },
                 onDelete = { point -> deletingPoint = point },
-            )
-            PhotoKindSelector(
-                selected = kind,
-                onSelect = vm::setKind,
-                modifier = Modifier.padding(top = 8.dp),
             )
             if (!hasLocation) {
                 Text(
@@ -259,7 +273,7 @@ fun CaptureScreen(
             Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(12.dp)
+                .padding(horizontal = Spacing.screen, vertical = Spacing.sm)
                 .clip(MaterialTheme.shapes.medium)
                 .background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -289,75 +303,96 @@ fun CaptureScreen(
                 }
             }
 
-            // Управление зумом до ×5. Ограничение накладывает CameraController —
-            // у камеры может быть меньший физический диапазон.
-            if (hasCamera && maxZoom > 1f) {
-                Surface(
+            // Рамка распознавания — под контролами, чтобы кнопки не выглядели неактивными.
+            if (kind == PhotoKind.LABEL) {
+                LabelGuideFrame(Modifier.fillMaxSize())
+            }
+
+            // Управление зумом и фонариком.
+            if (hasCamera && (maxZoom > 1f || hasFlash)) {
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(12.dp),
-                    color = Color.Black.copy(alpha = 0.45f),
-                    shape = MaterialTheme.shapes.small,
+                        .padding(Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (hasFlash) {
                         IconButton(
-                            onClick = { zoom = controller.setZoomRatio(zoom - 0.5f) },
-                            enabled = zoom > 1f,
+                            onClick = {
+                                val next = !torchOn
+                                torchOn = next
+                                controller.setTorch(next)
+                            },
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (torchOn) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                    } else {
+                                        Color.Black.copy(alpha = 0.4f)
+                                    },
+                                ),
                         ) {
-                            Icon(Icons.Filled.Remove, contentDescription = "Уменьшить", tint = Color.White)
+                            Icon(
+                                imageVector = if (torchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                                contentDescription = if (torchOn) "Выключить фонарик" else "Включить фонарик",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp),
+                            )
                         }
-                        Text(
-                            text = String.format(Locale.US, "%.1f×", zoom),
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        IconButton(
-                            onClick = { zoom = controller.setZoomRatio(zoom + 0.5f) },
-                            enabled = zoom < maxZoom,
+                    }
+                    if (maxZoom > 1f) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(18.dp),
                         ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Увеличить", tint = Color.White)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            ) {
+                                IconButton(
+                                    onClick = { zoom = controller.setZoomRatio(zoom - 0.5f) },
+                                    enabled = zoom > 1f,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Remove,
+                                        contentDescription = "Уменьшить",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                                Text(
+                                    text = String.format(Locale.US, "%.1f×", zoom),
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.padding(horizontal = 2.dp),
+                                )
+                                IconButton(
+                                    onClick = { zoom = controller.setZoomRatio(zoom + 0.5f) },
+                                    enabled = zoom < maxZoom,
+                                    modifier = Modifier.size(32.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = "Увеличить",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            }
-
-            IconButton(
-                onClick = {
-                    val file = File(context.cacheDir, "capture-${System.currentTimeMillis()}.jpg")
-                    controller.capture(file) { result ->
-                        result
-                            .onSuccess { vm.processCapture(it) }
-                            .onFailure { vm.notify("Не удалось сделать снимок: ${it.message}") }
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 20.dp)
-                    .size(74.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.9f)),
-            ) {
-                Icon(
-                    Icons.Filled.CameraAlt,
-                    contentDescription = "Снять",
-                    tint = Color.Black,
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-
-            if (busy) {
-                CircularProgressIndicator(color = Color.White)
-            }
-
-            if (kind == PhotoKind.LABEL) {
-                LabelGuideFrame(Modifier.fillMaxSize())
             }
 
             // Индикатор геометки поверх превью.
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(12.dp),
+                    .padding(Spacing.md),
                 color = Color.Black.copy(alpha = 0.45f),
                 shape = MaterialTheme.shapes.small,
             ) {
@@ -368,12 +403,33 @@ fun CaptureScreen(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
+
+            // Нижняя панель: тип слева, затвор по центру, тип справа.
+            CameraBottomBar(
+                kind = kind,
+                onSelectKind = vm::setKind,
+                onCapture = {
+                    val file = File(context.cacheDir, "capture-${System.currentTimeMillis()}.jpg")
+                    controller.capture(file) { result ->
+                        result
+                            .onSuccess { vm.processCapture(it) }
+                            .onFailure { vm.notify("Не удалось сделать снимок: ${it.message}") }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+
+            if (busy) {
+                CircularProgressIndicator(color = Color.White)
+            }
         }
 
         // ------------------------------------------------------ снимки
         SectionCard(
             title = "Снимки точки: ${photos.size}",
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = Spacing.screen),
             trailing = {
                 Row {
                     TextButton(onClick = onOpenPhotos) { Text("Все") }
@@ -386,14 +442,14 @@ fun CaptureScreen(
             if (photos.isEmpty()) {
                 Text("В этой точке ещё нет фотографий", style = MaterialTheme.typography.bodySmall)
             } else {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     items(photos, key = { it.id }) { photo ->
                         val bitmap = remember(photo.filePath) {
                             BitmapFactory.decodeFile(photo.filePath)
                         }
                         Box(
                             Modifier
-                                .size(72.dp)
+                                .size(Spacing.thumb)
                                 .clip(MaterialTheme.shapes.small)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
                                 .clickable { viewingPhoto = photo },
@@ -410,8 +466,8 @@ fun CaptureScreen(
                                 Box(
                                     Modifier
                                         .align(Alignment.BottomEnd)
-                                        .padding(3.dp)
-                                        .size(16.dp)
+                                        .padding(2.dp)
+                                        .size(Spacing.badge)
                                         .clip(CircleShape)
                                         .background(MaterialTheme.colorScheme.primary),
                                 )
@@ -422,7 +478,7 @@ fun CaptureScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(Spacing.sm))
     }
 
     if (showTripDialog) {
@@ -510,13 +566,89 @@ fun CaptureScreen(
         )
     }
 
+    if (showSettings) {
+        AppSettingsDialog(vm = vm, onDismiss = { showSettings = false })
+    }
+
     review?.let { state ->
         ReviewDialog(
             state = state,
+            onModelChange = vm::setReviewModel,
             onSerialChange = vm::setReviewSerial,
             onConfirm = vm::confirmReview,
             onSkip = vm::confirmWithoutSerial,
             onDiscard = vm::discardReview,
+        )
+    }
+}
+
+/**
+ * Панель камеры: слева «Объект», в центре затвор, справа «Этикетка».
+ * Выбранный тип подсвечен, чтобы переключение было явным.
+ */
+@Composable
+private fun CameraBottomBar(
+    kind: PhotoKind,
+    onSelectKind: (PhotoKind) -> Unit,
+    onCapture: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CameraKindButton(
+            text = PhotoKind.OBJECT.title,
+            selected = kind == PhotoKind.OBJECT,
+            onClick = { onSelectKind(PhotoKind.OBJECT) },
+        )
+        IconButton(
+            onClick = onCapture,
+            modifier = Modifier
+                .size(60.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.92f)),
+        ) {
+            Icon(
+                Icons.Filled.CameraAlt,
+                contentDescription = "Снять",
+                tint = Color.Black,
+                modifier = Modifier.size(26.dp),
+            )
+        }
+        CameraKindButton(
+            text = PhotoKind.LABEL.title,
+            selected = kind == PhotoKind.LABEL,
+            onClick = { onSelectKind(PhotoKind.LABEL) },
+        )
+    }
+}
+
+@Composable
+private fun CameraKindButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val bg = if (selected) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+    } else {
+        Color.Black.copy(alpha = 0.45f)
+    }
+    val fg = if (selected) MaterialTheme.colorScheme.onPrimary else Color.White
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = bg,
+        modifier = Modifier.width(100.dp),
+    ) {
+        Text(
+            text = text,
+            color = fg,
+            style = MaterialTheme.typography.labelMedium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
         )
     }
 }
@@ -560,12 +692,13 @@ private fun LabelGuideFrame(modifier: Modifier = Modifier) {
 }
 
 /**
- * Диалог подтверждения снимка: предпросмотр, кандидаты серийного номера
+ * Диалог подтверждения снимка: предпросмотр, кандидаты модели и серийного номера
  * из распознавания и ручной ввод.
  */
 @Composable
 private fun ReviewDialog(
     state: ReviewState,
+    onModelChange: (String) -> Unit,
     onSerialChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onSkip: () -> Unit,
@@ -592,7 +725,7 @@ private fun ReviewDialog(
         text = {
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
                 if (bitmap != null) {
                     Image(
@@ -620,6 +753,37 @@ private fun ReviewDialog(
                         }
                     } else {
                         Text(
+                            "Модель",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (state.modelCandidates.isEmpty()) {
+                            Text(
+                                "Модель не распознана. Введите её вручную или пропустите.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        } else {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                items(state.modelCandidates) { candidate ->
+                                    FilterChip(
+                                        selected = candidate == state.selectedModel,
+                                        onClick = { onModelChange(candidate) },
+                                        label = {
+                                            Text(candidate, fontFamily = FontFamily.Monospace)
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = state.selectedModel,
+                            onValueChange = onModelChange,
+                            label = { Text("Модель") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Text(
                             "Серийный номер",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
@@ -630,7 +794,7 @@ private fun ReviewDialog(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         } else {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                                 items(state.candidates) { candidate ->
                                     FilterChip(
                                         selected = candidate == state.selected,
@@ -682,7 +846,7 @@ private fun ReviewDialog(
         dismissButton = {
             Row {
                 if (state.kind == PhotoKind.LABEL) {
-                    TextButton(onClick = onSkip, enabled = !state.extracting) { Text("Без номера") }
+                    TextButton(onClick = onSkip, enabled = !state.extracting) { Text("Пропустить") }
                 }
                 TextButton(onClick = onDiscard) { Text("Удалить") }
             }

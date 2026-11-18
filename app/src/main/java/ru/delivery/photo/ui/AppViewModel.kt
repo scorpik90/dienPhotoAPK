@@ -44,16 +44,18 @@ import ru.delivery.photo.share.CollageBuilder
 import ru.delivery.photo.watermark.WatermarkRenderer
 import java.io.File
 
-/** Состояние подтверждения снимка: превью и кандидаты серийного номера. */
+/** Состояние подтверждения снимка: превью, модель и кандидаты серийного номера. */
 data class ReviewState(
     val pointId: String,
     val tempFile: File,
     val previewFile: File,
     val kind: PhotoKind,
     val candidates: List<String>,
+    val modelCandidates: List<String>,
     val rawText: String?,
     val barcodeValue: String?,
     val selected: String,
+    val selectedModel: String,
     val extracting: Boolean,
     val shotAt: Long,
     val lat: Double?,
@@ -135,6 +137,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val currentPointPhotos: StateFlow<List<PhotoEntity>> = _currentPointId
         .flatMapLatest { pointId ->
             if (pointId == null) flowOf(emptyList()) else repository.photosForPoint(pointId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Все фотографии активного рейса — для вкладки «Фото». */
+    val currentTripPhotos: StateFlow<List<PhotoEntity>> = activeTrip
+        .flatMapLatest { trip ->
+            if (trip == null) flowOf(emptyList()) else repository.photosForTrip(trip.id)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -433,6 +442,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     companyName = companyName,
                     routeNo = trip.routeNo,
                     pointName = point?.name.orEmpty(),
+                    model = null,
                     serial = null,
                     shotAtMillis = shotAt,
                     lat = location?.latitude,
@@ -463,9 +473,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     previewFile = previewFile,
                     kind = kind,
                     candidates = emptyList(),
+                    modelCandidates = emptyList(),
                     rawText = null,
                     barcodeValue = null,
                     selected = "",
+                    selectedModel = "",
                     extracting = kind == PhotoKind.LABEL,
                     shotAt = shotAt,
                     lat = location?.latitude,
@@ -500,9 +512,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     if (extraction != null) {
                         _review.value = _review.value?.copy(
                             candidates = extraction.candidates,
+                            modelCandidates = extraction.modelCandidates,
                             rawText = extraction.rawText,
                             barcodeValue = extraction.barcodeValue,
                             selected = extraction.candidates.firstOrNull().orEmpty(),
+                            selectedModel = extraction.modelCandidates.firstOrNull().orEmpty(),
                             extracting = false,
                             source = if (extraction.barcodeValue != null) {
                                 SerialSource.BARCODE
@@ -526,6 +540,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _review.value = _review.value?.copy(selected = value)
     }
 
+    fun setReviewModel(value: String) {
+        _review.value = _review.value?.copy(selectedModel = value)
+    }
+
     /** Подтверждает серийный номер и сохраняет финальный помеченный снимок. */
     fun confirmReview() {
         val state = _review.value ?: return
@@ -535,6 +553,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val trip = activeTrip.value ?: return@launch
                 val point = repository.getPoint(state.pointId)
 
+                val model = state.selectedModel.trim().takeIf { it.isNotEmpty() }
                 val serial = state.selected.trim().takeIf { it.isNotEmpty() }
                 // Источник фиксируется честно: штрихкод, найденный кандидат
                 // распознавания или ручной ввод. Это попадает в отчёт и позволяет
@@ -551,6 +570,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     companyName = companyName,
                     routeNo = trip.routeNo,
                     pointName = point?.name.orEmpty(),
+                    model = model,
                     serial = serial,
                     shotAtMillis = state.shotAt,
                     lat = state.lat,
@@ -577,6 +597,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     pointId = state.pointId,
                     filePath = finalFile.path,
                     kind = state.kind,
+                    model = model,
                     serial = serial,
                     serialSource = serialSource,
                     serialRawText = state.rawText,
@@ -602,9 +623,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Пропускает подтверждение серийного номера. */
+    /** Пропускает подтверждение модели и серийного номера. */
     fun confirmWithoutSerial() {
-        _review.value = _review.value?.copy(selected = "")
+        _review.value = _review.value?.copy(selected = "", selectedModel = "")
         confirmReview()
     }
 

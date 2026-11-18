@@ -131,7 +131,7 @@ private fun AppRootContent(
                     onOpenPhotos = { navController.navigate(Routes.PHOTOS) },
                 )
             }
-            composable(Routes.PHOTOS) { PhotosScreen(vm = vm, share = share) }
+            composable(Routes.PHOTOS) { PhotosScreen(vm = vm) }
             composable(Routes.HISTORY) { HistoryScreen(vm = vm) }
         }
     }

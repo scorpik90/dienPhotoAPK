@@ -1,5 +1,8 @@
 package ru.delivery.photo.ui.common
 
+import android.content.Context
+import android.location.Geocoder
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,10 +22,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -38,22 +43,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import ru.delivery.photo.DeliveryPhotoApp
 import ru.delivery.photo.data.db.CrewMemberEntity
 import ru.delivery.photo.data.db.DeliveryPointEntity
 import ru.delivery.photo.domain.PhotoKind
 import ru.delivery.photo.domain.ShareStrategy
 import ru.delivery.photo.domain.ThemeMode
+import ru.delivery.photo.ui.AppViewModel
+import ru.delivery.photo.ui.theme.Spacing
+import java.util.Locale
+import kotlin.coroutines.resume
 
-/** Карточка с заголовком и содержимым. */
+/** Карточка с заголовком и содержимым. Заголовок можно не указывать. */
 @Composable
 fun SectionCard(
-    title: String,
+    title: String? = null,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
@@ -62,14 +79,18 @@ fun SectionCard(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                trailing?.invoke()
+        Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            if (title != null || trailing != null) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                ) {
+                    if (title != null) {
+                        Text(title, style = MaterialTheme.typography.titleMedium)
+                    }
+                    trailing?.invoke()
+                }
             }
             content()
         }
@@ -175,6 +196,9 @@ fun DeliveryPointDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
+    var loadingAddress by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -196,6 +220,37 @@ fun DeliveryPointDialog(
                     onValueChange = { address = it },
                     label = { Text("Адрес (необязательно)") },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                if (loadingAddress) return@IconButton
+                                loadingAddress = true
+                                scope.launch {
+                                    val result = runCatching {
+                                        fetchAddressFromCurrentLocation(context)
+                                    }.getOrNull()
+                                    if (!result.isNullOrBlank()) {
+                                        address = result
+                                    }
+                                    loadingAddress = false
+                                }
+                            },
+                            enabled = !loadingAddress,
+                        ) {
+                            if (loadingAddress) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.MyLocation,
+                                    contentDescription = "Адрес по текущим координатам GPS",
+                                )
+                            }
+                        }
+                    },
                 )
             }
         },
@@ -204,6 +259,48 @@ fun DeliveryPointDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
+}
+
+private suspend fun fetchAddressFromCurrentLocation(context: Context): String? {
+    val app = context.applicationContext as? DeliveryPhotoApp ?: return null
+    val location = app.locationProvider.current() ?: app.locationProvider.lastKnown() ?: return null
+    return withContext(Dispatchers.IO) {
+        geocodeLine(context, location.latitude, location.longitude)
+    }
+}
+
+@Suppress("DEPRECATION")
+private suspend fun geocodeLine(context: Context, lat: Double, lon: Double): String? {
+    if (!Geocoder.isPresent()) return null
+    val geocoder = Geocoder(context, Locale.getDefault())
+    val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        suspendCancellableCoroutine { continuation ->
+            geocoder.getFromLocation(lat, lon, 1, object : Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                    if (continuation.isActive) {
+                        continuation.resume(addresses.firstOrNull())
+                    }
+                }
+
+                override fun onError(errorMessage: String?) {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            })
+            continuation.invokeOnCancellation { }
+        }
+    } else {
+        runCatching { geocoder.getFromLocation(lat, lon, 1) }
+            .getOrNull()
+            ?.firstOrNull()
+    } ?: return null
+
+    return address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: listOfNotNull(
+        address.thoroughfare,
+        address.subThoroughfare,
+        address.locality,
+        address.adminArea,
+        address.countryName,
+    ).joinToString(", ").takeIf { it.isNotBlank() }
 }
 
 /**
@@ -529,6 +626,25 @@ fun ShareSettingsDialog(
             }) { Text("Готово") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
+}
+
+/** Диалог настроек, привязанный к ViewModel. Открывается с экрана «Съёмка». */
+@Composable
+fun AppSettingsDialog(vm: AppViewModel, onDismiss: () -> Unit) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    ShareSettingsDialog(
+        strategy = ShareStrategy.from(settings[AppViewModel.KEY_SHARE_STRATEGY]),
+        chunkSize = settings[AppViewModel.KEY_CHUNK_SIZE]?.toIntOrNull()
+            ?: AppViewModel.DEFAULT_CHUNK_SIZE,
+        companyName = settings[AppViewModel.KEY_COMPANY_NAME]
+            ?: AppViewModel.DEFAULT_COMPANY_NAME,
+        themeMode = ThemeMode.from(settings[AppViewModel.KEY_THEME_MODE]),
+        onDismiss = onDismiss,
+        onStrategy = vm::setShareStrategy,
+        onChunkSize = vm::setChunkSize,
+        onCompanyName = vm::setCompanyName,
+        onThemeMode = vm::setThemeMode,
     )
 }
 

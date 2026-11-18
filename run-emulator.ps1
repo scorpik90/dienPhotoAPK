@@ -24,15 +24,21 @@
 .PARAMETER Headless
     Запустить без окна (для CI и автоматических проверок).
 
+.PARAMETER Gpu
+    Режим GPU эмулятора. По умолчанию swiftshader_indirect — программный
+    рендер, обходящий падения драйвера хоста (gfxstream/Intel Arc).
+
 .EXAMPLE
     .\run-emulator.ps1
+    .\run-emulator.ps1 -Gpu host
     .\run-emulator.ps1 -Apk app\build\outputs\apk\debug\app-debug.apk
 #>
 param(
     [string]$Avd = "PhotoReport",
     [string]$Apk = "",
     [switch]$NoInstall,
-    [switch]$Headless
+    [switch]$Headless,
+    [string]$Gpu = "swiftshader_indirect"
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,6 +63,7 @@ if ($running) {
     if (-not (Test-Path $emulator)) { throw "Не найден emulator: $emulator" }
 
     $args = @("-avd", $Avd, "-no-snapshot-save")
+    if ($Gpu) { $args += @("-gpu", $Gpu) }
     if ($Headless) { $args += "-no-window" }
     else { $args += @("-no-boot-anim") }
 
@@ -102,6 +109,7 @@ if (-not $NoInstall) {
 }
 
 Write-Host "Готово. Приложение запущено." -ForegroundColor Green
+Write-Host "GPU: $Gpu" -ForegroundColor Cyan
 Write-Host "Полезные команды:" -ForegroundColor Cyan
 Write-Host "  & '$adb' emu geo fix 37.62363 55.75387   # задать координаты (долгота, затем широта)"
 Write-Host "  & '$adb' shell pm grant $package android.permission.ACCESS_FINE_LOCATION"
