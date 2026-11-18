@@ -168,6 +168,7 @@ object WatermarkRenderer {
             exif.setAttribute(ExifInterface.TAG_DATETIME, TimeFmt.exifDateTime(stamp.shotAtMillis))
             exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, descriptionFor(stamp))
             exif.setAttribute(ExifInterface.TAG_SOFTWARE, "DeliveryPhoto")
+            exif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
             exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, TimeFmt.exifDate(stamp.shotAtMillis))
             exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, TimeFmt.time(stamp.shotAtMillis))
             if (stamp.lat != null && stamp.lon != null) {
@@ -202,6 +203,11 @@ object WatermarkRenderer {
      * Декодирует JPEG с уменьшением до [maxDim] по длинной стороне,
      * чтобы не держать в памяти полный кадр камеры.
      */
+    /**
+     * Загрузить JPEG с уменьшением до [maxDim] по длинной стороне,
+     * чтобы не перегрузить память большим кадром камеры.
+     * Применяет EXIF-ориентацию, чтобы пиксели были выровнены корректно.
+     */
     fun decodeScaled(file: File, maxDim: Int = MAX_DIMENSION): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.path, bounds)
@@ -216,6 +222,38 @@ object WatermarkRenderer {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        return BitmapFactory.decodeFile(file.path, options)
+        val bitmap = BitmapFactory.decodeFile(file.path, options) ?: return null
+        return applyExifOrientation(file, bitmap)
+    }
+
+    private fun applyExifOrientation(file: File, bitmap: Bitmap): Bitmap {
+        val exif = runCatching { ExifInterface(file) }.getOrNull() ?: return bitmap
+        val orientation = exif.getAttributeInt(
+            ExifInterface.TAG_ORIENTATION,
+            ExifInterface.ORIENTATION_NORMAL,
+        )
+        val matrix = android.graphics.Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                matrix.setRotate(180f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return bitmap
+        }
+        val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (rotated != bitmap) bitmap.recycle()
+        return rotated
     }
 }

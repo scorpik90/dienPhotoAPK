@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
 import androidx.core.content.FileProvider
+import ru.delivery.photo.data.db.DeliveryPointEntity
 import ru.delivery.photo.data.db.PhotoEntity
 import ru.delivery.photo.domain.TimeFmt
 import java.io.File
@@ -98,25 +99,36 @@ object CaptionBuilder {
         }
     }
 
-    /**
-     * Подпись к отчёту по всему завершённому рейсу.
+        /**
+     * Подпись к отчёту по всему законченному рейсу.
      *
-     * В отличие от отчёта по точке, здесь перечисляются все водители и все
-     * точки разгрузки — по ним можно сверить пакет фотографий с маршрутом.
+     * Точки разгрузки — по ним проще сверить полноту итоговой выгрузки с маршрутом.
+     * Для каждой точки указывается время первой фотографии на ней.
      */
     fun buildTrip(
         routeNo: String,
         drivers: List<String>,
-        pointNames: List<String>,
+        points: List<DeliveryPointEntity>,
         photos: List<PhotoEntity>,
+        pointPhotos: List<PhotoEntity> = photos,
     ): String = buildString {
         append("Отчёт по рейсу ").append(routeNo.ifBlank { "—" }).appendLine()
 
         if (drivers.isNotEmpty()) {
             append("Водители: ").append(drivers.joinToString("; ")).appendLine()
         }
-        if (pointNames.isNotEmpty()) {
-            append("Точки разгрузки: ").append(pointNames.joinToString(", ")).appendLine()
+        if (points.isNotEmpty()) {
+            val labels = points.map { point ->
+                val firstAt = pointPhotos.asSequence()
+                    .filter { it.pointId == point.id }
+                    .minOfOrNull { it.shotAt }
+                if (firstAt != null) {
+                    "${point.name} - ${TimeFmt.pointStamp(firstAt)}"
+                } else {
+                    point.name
+                }
+            }
+            append("Точки разгрузки: ").append(labels.joinToString(", ")).appendLine()
         }
 
         val serial = photos.mapNotNull { it.serial }.distinct()
@@ -126,7 +138,7 @@ object CaptionBuilder {
 
         if (photos.isNotEmpty()) {
             append("Фото: ").append(photos.size).append(" шт., ")
-            append(TimeFmt.time(photos.first().shotAt)).append("–").append(TimeFmt.time(photos.last().shotAt))
+            append(TimeFmt.time(photos.first().shotAt)).append("-").append(TimeFmt.time(photos.last().shotAt))
         }
     }
 }

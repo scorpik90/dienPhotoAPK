@@ -766,8 +766,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val caption = CaptionBuilder.buildTrip(
             routeNo = trip.routeNo,
             drivers = drivers,
-            pointNames = points.map { it.name },
+            points = points,
             photos = selected,
+            pointPhotos = all,
         )
 
         val files = selected.map { File(it.filePath) }.filter { it.exists() }

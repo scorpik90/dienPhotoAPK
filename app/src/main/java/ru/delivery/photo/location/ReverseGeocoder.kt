@@ -48,7 +48,7 @@ object ReverseGeocoder {
         return runCatching {
             val geocode = URLEncoder.encode("$lon,$lat", Charsets.UTF_8.name())
             val query = "https://geocode-maps.yandex.ru/1.x/?" +
-                "apikey=$apiKey&geocode=$geocode&format=json&lang=ru_RU&results=1"
+                "apikey=$apiKey&geocode=$geocode&format=json&lang=ru_RU&results=1&kind=house"
             val connection = (URL(query).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 7_000
@@ -70,6 +70,8 @@ object ReverseGeocoder {
                 if (members.length() == 0) return@runCatching null
                 val geo = members.optJSONObject(0)?.optJSONObject("GeoObject") ?: return@runCatching null
                 val meta = geo.optJSONObject("metaDataProperty")?.optJSONObject("GeocoderMetaData")
+                val shortened = shortenYandexAddress(meta)
+                if (!shortened.isNullOrBlank()) return@runCatching shortened
                 meta?.optString("text")?.takeIf { it.isNotBlank() }
                     ?: meta?.optJSONObject("Address")?.optString("formatted")?.takeIf { it.isNotBlank() }
                     ?: geo.optString("name")?.takeIf { it.isNotBlank() }
@@ -79,6 +81,25 @@ object ReverseGeocoder {
         }.onFailure { e ->
             Log.w(TAG, "Yandex geocoder request failed", e)
         }.getOrNull()
+    }
+
+    /**
+     * Сокращённый адрес без страны и области/региона (province).
+     * Оставляет населённый пункт/район, улицу, дом и т.п.
+     */
+    private fun shortenYandexAddress(meta: JSONObject?): String? {
+        val components = meta?.optJSONObject("Address")?.optJSONArray("Components") ?: return null
+        val parts = ArrayList<String>()
+        val seen = HashSet<String>()
+        for (i in 0 until components.length()) {
+            val comp = components.optJSONObject(i) ?: continue
+            val kind = comp.optString("kind")
+            val name = comp.optString("name").trim()
+            if (name.isBlank()) continue
+            if (kind == "country" || kind == "province") continue
+            if (seen.add(name)) parts.add(name)
+        }
+        return parts.joinToString(", ").takeIf { it.isNotBlank() }
     }
 
     @Suppress("DEPRECATION")
@@ -106,13 +127,20 @@ object ReverseGeocoder {
                 geocoder.getFromLocation(lat, lon, 1)?.firstOrNull()
             } ?: return@runCatching null
 
-            address.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: listOfNotNull(
+            // Сокращённый адрес: без страны и области/региона.
+            val parts = linkedSetOf<String>()
+            listOfNotNull(
+                address.locality,
+                address.subLocality,
                 address.thoroughfare,
                 address.subThoroughfare,
-                address.locality,
-                address.adminArea,
-                address.countryName,
-            ).joinToString(", ").takeIf { it.isNotBlank() }
+                address.premises,
+                address.featureName,
+            ).forEach { part ->
+                val value = part.trim()
+                if (value.isNotBlank()) parts.add(value)
+            }
+            parts.joinToString(", ").takeIf { it.isNotBlank() }
         }.onFailure { e ->
             Log.w(TAG, "System geocoder failed", e)
         }.getOrNull()

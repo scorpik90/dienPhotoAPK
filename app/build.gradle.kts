@@ -39,8 +39,8 @@ android {
         applicationId = "ru.delivery.photo"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
 
         // Ключ не хранится в исходниках открытым текстом: берётся из local.properties/env
         // и вшивается в приложение в обфусцированном виде (см. ReverseGeocoder).

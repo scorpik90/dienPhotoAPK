@@ -1,6 +1,7 @@
 package ru.delivery.photo.ui.capture
 
 import android.Manifest
+import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,12 +16,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -66,6 +69,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -195,254 +199,52 @@ fun CaptureScreen(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // ------------------------------------------------------- шапка
-        SectionCard(
-            title = "Рейс",
-            modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.sm),
-            trailing = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (trip == null) {
-                        TextButton(onClick = {
-                            tripCrew = pendingCrew
-                            showTripDialog = true
-                        }) { Text("Начать") }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Настройки")
-                        }
-                    } else {
-                        TextButton(onClick = {
-                            tripCrew = pendingCrew
-                            showTripDialog = true
-                        }) { Text("Изменить") }
-                        TextButton(onClick = { showFinishDialog = true }) { Text("Завершить") }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "Настройки")
-                        }
-                    }
-                }
-            },
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    if (isLandscape) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(Spacing.screen),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            val tripEntity = trip
-            if (tripEntity == null) {
-                Text("Рейс не начат", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Text(
-                    buildString {
-                        append(tripEntity.routeNo)
-                        val name = currentCrew?.name ?: tripEntity.driverName
-                        val vehicle = currentCrew?.vehicle ?: tripEntity.vehicle
-                        if (name.isNotBlank()) append(" · ").append(name)
-                        if (vehicle.isNotBlank()) append(" · ").append(vehicle)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                CrewSelector(
-                    members = crew,
-                    currentId = currentCrew?.id,
-                    onSelect = vm::switchCrew,
-                    modifier = Modifier.padding(top = Spacing.xs),
-                )
-            }
-        }
-
-        // ------------------------------------------------- точка разгрузки
-        SectionCard(
-            title = null,
-            modifier = Modifier.padding(horizontal = Spacing.screen),
-        ) {
-            PointSelector(
-                points = points,
-                selectedId = pointId,
-                onSelect = vm::selectPoint,
-                onCreate = { showPointDialog = true },
-                onRename = { point -> editingPoint = point },
-                onDelete = { point -> deletingPoint = point },
-            )
-            if (!hasLocation) {
-                Text(
-                    "Геолокация не разрешена — координаты в штампе будут недоступны",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-
-        // --------------------------------------------------- камера
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(horizontal = Spacing.screen, vertical = Spacing.sm)
-                .clip(MaterialTheme.shapes.medium)
-                .background(Color.Black),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (hasCamera) {
-                // Жест «щипок» меняет кратность; кнопки ниже — запасной способ.
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, _, factor, _ ->
-                                zoom = controller.setZoomRatio(zoom * factor)
-                            }
-                        }
-                ) {
-                    androidx.compose.ui.viewinterop.AndroidView(
-                        factory = { previewView },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Нет доступа к камере", color = Color.White)
-                    Button(onClick = { cameraPermission.launch(Manifest.permission.CAMERA) }) {
-                        Text("Разрешить")
-                    }
-                }
-            }
-
-            // Рамка распознавания — под контролами, чтобы кнопки не выглядели неактивными.
-            if (kind == PhotoKind.LABEL) {
-                LabelGuideFrame(Modifier.fillMaxSize())
-            }
-
-            // Управление зумом и фонариком.
-            if (hasCamera && (maxZoom > 1f || hasFlash)) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(Spacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    if (hasFlash) {
-                        IconButton(
-                            onClick = {
-                                val next = !torchOn
-                                torchOn = next
-                                controller.setTorch(next)
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (torchOn) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                                    } else {
-                                        Color.Black.copy(alpha = 0.4f)
-                                    },
-                                ),
-                        ) {
-                            Icon(
-                                imageVector = if (torchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
-                                contentDescription = if (torchOn) "Выключить фонарик" else "Включить фонарик",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp),
-                            )
-                        }
-                    }
-                    if (maxZoom > 1f) {
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.4f),
-                            shape = RoundedCornerShape(18.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            ) {
-                                IconButton(
-                                    onClick = { zoom = controller.setZoomRatio(zoom - 0.5f) },
-                                    enabled = zoom > 1f,
-                                    modifier = Modifier.size(32.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Remove,
-                                        contentDescription = "Уменьшить",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                                Text(
-                                    text = String.format(Locale.US, "%.1f×", zoom),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 2.dp),
-                                )
-                                IconButton(
-                                    onClick = { zoom = controller.setZoomRatio(zoom + 0.5f) },
-                                    enabled = zoom < maxZoom,
-                                    modifier = Modifier.size(32.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = "Увеличить",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp),
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Индикатор геометки поверх превью.
-            Surface(
+            CameraArea(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(Spacing.md),
-                color = Color.Black.copy(alpha = 0.45f),
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    text = gpsText ?: "Определение координат…",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-            }
-
-            // Нижняя панель: тип слева, затвор по центру, тип справа.
-            CameraBottomBar(
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(Color.Black),
+                hasCamera = hasCamera,
+                previewView = previewView,
+                controller = controller,
+                zoom = zoom,
+                onZoomChange = { zoom = it },
+                maxZoom = maxZoom,
+                torchOn = torchOn,
+                onTorchChange = { torchOn = it },
+                hasFlash = hasFlash,
                 kind = kind,
                 onSelectKind = vm::setKind,
+                gpsText = gpsText,
+                busy = busy,
                 onCapture = {
                     val file = File(context.cacheDir, "capture-${System.currentTimeMillis()}.jpg")
                     controller.capture(file) { result ->
                         result
                             .onSuccess { vm.processCapture(it) }
-                            .onFailure { vm.notify("Не удалось сделать снимок: ${it.message}") }
+                            .onFailure { vm.notify("Не удалось сделать фото: ${it.message}") }
                     }
                 },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                onRequestCamera = { cameraPermission.launch(Manifest.permission.CAMERA) },
             )
 
-            if (busy) {
-                CircularProgressIndicator(color = Color.White)
-            }
-        }
-
-        // ------------------------------------------------------ снимки
-        SectionCard(
-            title = "Снимки точки: ${photos.size}",
-            modifier = Modifier.padding(horizontal = Spacing.screen),
-            trailing = {
-                Row {
-                    TextButton(onClick = onOpenPhotos) { Text("Все") }
-                    IconButton(onClick = { share.start?.invoke() }, enabled = photos.isNotEmpty()) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить в MAX")
-                    }
-                }
-            },
-        ) {
-            if (photos.isEmpty()) {
-                Text("В этой точке ещё нет фотографий", style = MaterialTheme.typography.bodySmall)
-            } else {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            if (photos.isNotEmpty()) {
+                LazyColumn(
+                    modifier = Modifier
+                        .width(Spacing.thumb)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
                     items(photos, key = { it.id }) { photo ->
                         val bitmap = remember(photo.filePath) {
                             BitmapFactory.decodeFile(photo.filePath)
@@ -477,8 +279,166 @@ fun CaptureScreen(
                 }
             }
         }
+    } else {
+        Column(Modifier.fillMaxSize()) {
+            SectionCard(
+                title = "Рейс",
+                modifier = Modifier.padding(horizontal = Spacing.screen, vertical = Spacing.sm),
+                trailing = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (trip == null) {
+                            TextButton(onClick = {
+                                tripCrew = pendingCrew
+                                showTripDialog = true
+                            }) { Text("Начать") }
+                            IconButton(onClick = { showSettings = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                            }
+                        } else {
+                            TextButton(onClick = {
+                                tripCrew = pendingCrew
+                                showTripDialog = true
+                            }) { Text("Изменить") }
+                            TextButton(onClick = { showFinishDialog = true }) { Text("Завершить") }
+                            IconButton(onClick = { showSettings = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Настройки")
+                            }
+                        }
+                    }
+                },
+            ) {
+                val tripEntity = trip
+                if (tripEntity == null) {
+                    Text("Рейс не начат", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text(
+                        buildString {
+                            append(tripEntity.routeNo)
+                            val name = currentCrew?.name ?: tripEntity.driverName
+                            val vehicle = currentCrew?.vehicle ?: tripEntity.vehicle
+                            if (name.isNotBlank()) append(" · ").append(name)
+                            if (vehicle.isNotBlank()) append(" · ").append(vehicle)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    CrewSelector(
+                        members = crew,
+                        currentId = currentCrew?.id,
+                        onSelect = vm::switchCrew,
+                        modifier = Modifier.padding(top = Spacing.xs),
+                    )
+                }
+            }
 
-        Spacer(Modifier.height(Spacing.sm))
+            // ------------------------------------------------- точка разгрузки
+
+            SectionCard(
+                title = null,
+                modifier = Modifier.padding(horizontal = Spacing.screen),
+            ) {
+                PointSelector(
+                    points = points,
+                    selectedId = pointId,
+                    onSelect = vm::selectPoint,
+                    onCreate = { showPointDialog = true },
+                    onRename = { point -> editingPoint = point },
+                    onDelete = { point -> deletingPoint = point },
+                )
+                if (!hasLocation) {
+                    Text(
+                        "Геолокация не разрешена — координаты в штампе будут недоступны",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            // --------------------------------------------------- Камера
+            CameraArea(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(horizontal = Spacing.screen, vertical = Spacing.sm)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(Color.Black),
+                hasCamera = hasCamera,
+                previewView = previewView,
+                controller = controller,
+                zoom = zoom,
+                onZoomChange = { zoom = it },
+                maxZoom = maxZoom,
+                torchOn = torchOn,
+                onTorchChange = { torchOn = it },
+                hasFlash = hasFlash,
+                kind = kind,
+                onSelectKind = vm::setKind,
+                gpsText = gpsText,
+                busy = busy,
+                onCapture = {
+                    val file = File(context.cacheDir, "capture-${System.currentTimeMillis()}.jpg")
+                    controller.capture(file) { result ->
+                        result
+                            .onSuccess { vm.processCapture(it) }
+                            .onFailure { vm.notify("Не удалось сделать фото: ${it.message}") }
+                    }
+                },
+                onRequestCamera = { cameraPermission.launch(Manifest.permission.CAMERA) },
+            )
+
+            // ------------------------------------------------------ Снимки точки
+            SectionCard(
+                title = "Снимки точки: ${photos.size}",
+                modifier = Modifier.padding(horizontal = Spacing.screen),
+                trailing = {
+                    Row {
+                        TextButton(onClick = onOpenPhotos) { Text("Все") }
+                        IconButton(onClick = { share.start?.invoke() }, enabled = photos.isNotEmpty()) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Отправить в MAX")
+                        }
+                    }
+                },
+            ) {
+                if (photos.isEmpty()) {
+                    Text("В этой точке ещё нет фотографий", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        items(photos, key = { it.id }) { photo ->
+                            val bitmap = remember(photo.filePath) {
+                                BitmapFactory.decodeFile(photo.filePath)
+                            }
+                            Box(
+                                Modifier
+                                    .size(Spacing.thumb)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { viewingPhoto = photo },
+                            ) {
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                }
+                                if (photo.sentAt != null) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(2.dp)
+                                            .size(Spacing.badge)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(Spacing.sm))
+        }
     }
 
     if (showTripDialog) {
@@ -591,23 +551,194 @@ fun CaptureScreen(
  * Панель камеры: слева «Объект», в центре затвор, справа «Этикетка».
  * Выбранный тип подсвечен, чтобы переключение было явным.
  */
+
+@Composable
+private fun CameraArea(
+    modifier: Modifier,
+    hasCamera: Boolean,
+    previewView: PreviewView,
+    controller: CameraController,
+    zoom: Float,
+    onZoomChange: (Float) -> Unit,
+    maxZoom: Float,
+    torchOn: Boolean,
+    onTorchChange: (Boolean) -> Unit,
+    hasFlash: Boolean,
+    kind: PhotoKind,
+    onSelectKind: (PhotoKind) -> Unit,
+    gpsText: String?,
+    busy: Boolean,
+    onCapture: () -> Unit,
+    onRequestCamera: () -> Unit,
+) {
+Box(
+    modifier = modifier,
+    contentAlignment = Alignment.Center,
+) {
+        if (hasCamera) {
+            // Жест «щипок» меняет кратность; кнопки ниже — запасной способ.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, _, factor, _ ->
+                            onZoomChange(controller.setZoomRatio(zoom * factor))
+                        }
+                    }
+            ) {
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { previewView },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Нет доступа к камере", color = Color.White)
+                Button(onClick = onRequestCamera) {
+                    Text("Разрешить")
+                }
+            }
+        }
+
+        // Рамка распознавания — под контролами, чтобы кнопки не выглядели неактивными.
+        if (kind == PhotoKind.LABEL) {
+            LabelGuideFrame(Modifier.fillMaxSize())
+        }
+
+        // Управление зумом и фонариком.
+        if (hasCamera && (maxZoom > 1f || hasFlash)) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (hasFlash) {
+                    IconButton(
+                        onClick = {
+                            val next = !torchOn
+                            onTorchChange(next)
+                            controller.setTorch(next)
+                        },
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (torchOn) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.4f)
+                                },
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = if (torchOn) Icons.Filled.FlashOn else Icons.Filled.FlashOff,
+                            contentDescription = if (torchOn) "Выключить фонарик" else "Включить фонарик",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                }
+                if (maxZoom > 1f) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(18.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        ) {
+                            IconButton(
+                                onClick = { onZoomChange(controller.setZoomRatio(zoom - 0.5f)) },
+                                enabled = zoom > 1f,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Remove,
+                                    contentDescription = "Уменьшить",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Text(
+                                text = String.format(Locale.US, "%.1f×", zoom),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 2.dp),
+                            )
+                            IconButton(
+                                onClick = { onZoomChange(controller.setZoomRatio(zoom + 0.5f)) },
+                                enabled = zoom < maxZoom,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = "Увеличить",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Индикатор геометки поверх превью.
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(Spacing.md),
+            color = Color.Black.copy(alpha = 0.45f),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Text(
+                text = gpsText ?: "Определение координат…",
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
+
+        // Нижняя панель: тип слева, затвор по центру, тип справа.
+        val isLandscapeControls = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        CameraBottomBar(
+            kind = kind,
+            onSelectKind = onSelectKind,
+            onCapture = onCapture,
+            vertical = isLandscapeControls,
+            modifier = if (isLandscapeControls) {
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+            } else {
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            },
+        )
+
+        if (busy) {
+            CircularProgressIndicator(color = Color.White)
+        }
+    }
+}
+
+/**
+ * Панель управления камерой.
+ * Портрет: горизонтально внизу (Объект — Спуск — Этикетка).
+ * Альбом: вертикально у правого края (Спуск — Объект — Этикетка).
+ */
 @Composable
 private fun CameraBottomBar(
     kind: PhotoKind,
     onSelectKind: (PhotoKind) -> Unit,
     onCapture: () -> Unit,
     modifier: Modifier = Modifier,
+    vertical: Boolean = false,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CameraKindButton(
-            text = PhotoKind.OBJECT.title,
-            selected = kind == PhotoKind.OBJECT,
-            onClick = { onSelectKind(PhotoKind.OBJECT) },
-        )
+    val shutter = @Composable {
         IconButton(
             onClick = onCapture,
             modifier = Modifier
@@ -622,11 +753,42 @@ private fun CameraBottomBar(
                 modifier = Modifier.size(26.dp),
             )
         }
+    }
+    val objectButton = @Composable {
+        CameraKindButton(
+            text = PhotoKind.OBJECT.title,
+            selected = kind == PhotoKind.OBJECT,
+            onClick = { onSelectKind(PhotoKind.OBJECT) },
+        )
+    }
+    val labelButton = @Composable {
         CameraKindButton(
             text = PhotoKind.LABEL.title,
             selected = kind == PhotoKind.LABEL,
             onClick = { onSelectKind(PhotoKind.LABEL) },
         )
+    }
+
+    if (vertical) {
+        Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(Spacing.md, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            shutter()
+            objectButton()
+            labelButton()
+        }
+    } else {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            objectButton()
+            shutter()
+            labelButton()
+        }
     }
 }
 

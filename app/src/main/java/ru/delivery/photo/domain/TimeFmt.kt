@@ -27,6 +27,7 @@ object TimeFmt {
 
     private val STAMP = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss", Locale.ROOT)
     private val SHORT_STAMP = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.ROOT)
+    private val POINT_STAMP = DateTimeFormatter.ofPattern("dd.MM.yy/HH:mm", Locale.ROOT)
     private val DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale.ROOT)
     private val TIME = DateTimeFormatter.ofPattern("HH:mm:ss", Locale.ROOT)
     private val EXIF = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss", Locale.ROOT)
@@ -40,6 +41,9 @@ object TimeFmt {
      * рейс получает его автоматически по времени начала (по московскому времени).
      */
     fun shortStamp(millis: Long): String = SHORT_STAMP.format(Instant.ofEpochMilli(millis).atZone(ZONE))
+
+    /** 18.11.26/15:00 — время первой фотографии на точке (для отчёта по рейсу). */
+    fun pointStamp(millis: Long): String = POINT_STAMP.format(Instant.ofEpochMilli(millis).atZone(ZONE))
 
     fun date(millis: Long): String = DATE.format(Instant.ofEpochMilli(millis).atZone(ZONE))
 
